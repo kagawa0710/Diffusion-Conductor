@@ -1,3 +1,8 @@
+import os
+from utils.train_utils import PairBuilder
+from M2SNet_eval import M2SNet_evaluator
+from utils.dataset import ConductorMotionDataset
+import models.M2SNet
 import argparse
 import tqdm
 import numpy as np
@@ -13,24 +18,20 @@ import torch.backends.cudnn
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
 
-import models.M2SNet
-from utils.dataset import ConductorMotionDataset
-from M2SNet_eval import M2SNet_evaluator
-from utils.train_utils import PairBuilder
 
 torch.manual_seed(19990319)
 torch.cuda.manual_seed(19990319)
 np.random.seed(19990319)
 
-import os
-torch.cuda.set_device(2)
-os.environ['CUDA_VISIBLE_DEVICES'] ='2'
+# torch.cuda.set_device(2)
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
-if torch.cuda.is_available():
-    device = "cuda"
-    device = torch.device("cuda:2")
-else:
-    device = "cpu"
+# if torch.cuda.is_available():
+#     device = "cuda"
+#     device = torch.device("cuda:2")
+# else:
+device = "cpu"
+
 
 def train(args):
     total_step = 0
@@ -39,13 +40,14 @@ def train(args):
                                           split=args.training_set,
                                           limit=args.training_set_limit,
                                           root_dir=args.dataset_dir)
-    train_loader = DataLoader(dataset=training_set, batch_size=args.batch_size, shuffle=False)
+    train_loader = DataLoader(dataset=training_set,
+                              batch_size=args.batch_size, shuffle=False)
 
     M2SNet = models.M2SNet.M2SNet().to(device)
 
     load_path = ''
     # load_path = '/Users/jinbin/5340Proj/stage_1_checkpoints/M2SNet/hard/M2SNet_last.pt'
-    if load_path !='':
+    if load_path != '':
         paras = torch.load(load_path)
         new_paras = {}
         for key in paras.keys():
@@ -57,7 +59,7 @@ def train(args):
     # M2SNet.init_weight()
 
     # support DP
-    M2SNet = torch.nn.DataParallel(M2SNet,device_ids=[2]) 
+    M2SNet = torch.nn.DataParallel(M2SNet, device_ids=[2])
     # support DP
 
     optimizer_M2S = torch.optim.Adam(M2SNet.parameters(), lr=0.001)
@@ -80,7 +82,8 @@ def train(args):
             if epoch == 0:
                 # easy negatives are used for pre-training in the first epoch
                 # since we find the models under hard or super-hard negatives are difficult to train from scratch.
-                music_1, music_2, motion_1, motion_2 = pairBuilder.build_pairs(music, motion, sampling_strategy='easy')
+                music_1, music_2, motion_1, motion_2 = pairBuilder.build_pairs(
+                    music, motion, sampling_strategy='easy')
             else:
                 music_1, music_2, motion_1, motion_2 = pairBuilder.build_pairs(music, motion,
                                                                                sampling_strategy=args.sampling_mode)
@@ -90,7 +93,7 @@ def train(args):
             pred_22 = M2SNet(music_2, motion_2)
             pred_21 = M2SNet(music_2, motion_1)
             loss = BCE(pred_11.mean(dim=1), ONE) + BCE(pred_12.mean(dim=1), ZERO) + \
-                   BCE(pred_22.mean(dim=1), ONE) + BCE(pred_21.mean(dim=1), ZERO)
+                BCE(pred_22.mean(dim=1), ONE) + BCE(pred_21.mean(dim=1), ZERO)
 
             loss.backward()
             optimizer_M2S.step()
@@ -101,10 +104,13 @@ def train(args):
 
             TP = np.sum(pred_11.detach().cpu().numpy() > 0.5)
             TF = np.sum(pred_12.detach().cpu().numpy() < 0.5)
-            accuracy = (TP + TF) / (args.batch_size * args.clip_length * 2 * 30)
+            accuracy = (TP + TF) / (args.batch_size *
+                                    args.clip_length * 2 * 30)
 
-            writer.add_scalars('M2SNet/loss', {'train': loss.item()}, total_step)
-            writer.add_scalars('M2SNet/accuracy', {'train': accuracy.item()}, total_step)
+            writer.add_scalars(
+                'M2SNet/loss', {'train': loss.item()}, total_step)
+            writer.add_scalars('M2SNet/accuracy',
+                               {'train': accuracy.item()}, total_step)
             writer.add_scalars('M2SNet/prediction_train', {'sync_train': torch.mean(pred_11).item(),
                                                            'non_sync_train': torch.mean(pred_12).item()}, total_step)
             pbar.set_description('Epoch: %d | step: %d | total step: %d | loss: %.5f | training accuracy %.5f'
@@ -162,18 +168,24 @@ if __name__ == '__main__':
                              '"super_hard": train with super-hard negatives. '
                              '"hard_test": train on test set for Mean Perceptual Error (MPE)')
 
-    parser.add_argument('--dataset_dir', default='/Users/jinbin/5340Proj/dataset')
+    parser.add_argument(
+        '--dataset_dir', default='/Users/jinbin/5340Proj/dataset')
     parser.add_argument('--training_set', default='train')
     parser.add_argument('--training_set_limit', default=None)
     parser.add_argument('--testing_set', default='test')
-    parser.add_argument('--testing_set_limit', default=None, help='using a subset of dataset')
+    parser.add_argument('--testing_set_limit', default=None,
+                        help='using a subset of dataset')
 
     parser.add_argument('--num_epoch', default=400, help='total epochs')
-    parser.add_argument('--evaluate_epoch', default=5, help='interval between evaluation')
+    parser.add_argument('--evaluate_epoch', default=5,
+                        help='interval between evaluation')
 
-    parser.add_argument('--batch_size', default=10, type=int, help='batch size')
-    parser.add_argument('--sample_length', default=30, help='sample length before random sampling (in second)')
-    parser.add_argument('--clip_length', default=10, help='sampled pair length (in second)')
+    parser.add_argument('--batch_size', default=10,
+                        type=int, help='batch size')
+    parser.add_argument('--sample_length', default=30,
+                        help='sample length before random sampling (in second)')
+    parser.add_argument('--clip_length', default=10,
+                        help='sampled pair length (in second)')
 
     args = parser.parse_args()
 
